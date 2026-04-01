@@ -52,6 +52,8 @@ export function LeaderboardView({ entries, lastUpdated, versions, currentVersion
     const [providerFilter, setProviderFilterState] = useState<string | null>(initialProvider)
     const [openWeightsOnly, setOpenWeightsOnlyState] = useState<boolean>(initialOpenWeights)
     const [graphSubTab, setGraphSubTabState] = useState<GraphSubTab>(initialGraphTab)
+    // Hidden providers — managed here so Header counts stay in sync with graph legend toggles
+    const [hiddenProviders, setHiddenProviders] = useState<Set<string>>(new Set())
 
     // Helper to update URL params without full page reload
     const updateUrl = useCallback((updates: Record<string, string | null>) => {
@@ -100,17 +102,15 @@ export function LeaderboardView({ entries, lastUpdated, versions, currentVersion
         updateUrl({ official: v ? null : 'false' })
     }, [updateUrl])
 
-    const filteredEntries = useMemo(() => {
-        let result = entries
-        if (providerFilter) {
-            result = result.filter(
-                (entry) => entry.provider.toLowerCase() === providerFilter.toLowerCase()
-            )
-        }
-        if (openWeightsOnly) {
-            result = result.filter((entry) => entry.weights === 'Open')
-        }
-        return result
+    // Business-level filters only (provider filter, open weights).
+    // Used for totalRuns, legend provider list, and all charts/tables.
+    // ScatterGraphs additionally applies hiddenProviders internally for chart rendering.
+    const businessFilteredEntries = useMemo(() => {
+        return entries.filter(entry => {
+            if (providerFilter && entry.provider.toLowerCase() !== providerFilter.toLowerCase()) return false
+            if (openWeightsOnly && entry.weights !== 'Open') return false
+            return true
+        })
     }, [entries, providerFilter, openWeightsOnly])
 
     const providerColor = providerFilter
@@ -118,13 +118,13 @@ export function LeaderboardView({ entries, lastUpdated, versions, currentVersion
         : undefined
 
     const totalRuns = useMemo(() => {
-        return filteredEntries.reduce((sum, entry) => sum + (entry.submission_count ?? 0), 0)
-    }, [filteredEntries])
+        return businessFilteredEntries.reduce((sum, entry) => sum + (entry.submission_count ?? 0), 0)
+    }, [businessFilteredEntries])
 
     return (
         <div className="min-h-screen bg-background">
             <LeaderboardHeader
-                filteredEntryCount={filteredEntries.length}
+                filteredEntryCount={businessFilteredEntries.length}
                 totalRuns={totalRuns}
                 versions={versions}
                 currentVersion={currentVersion}
@@ -167,23 +167,28 @@ export function LeaderboardView({ entries, lastUpdated, versions, currentVersion
                         </div>
 
                         {graphSubTab === 'scatter' && (
-                            <ScatterGraphs entries={filteredEntries} scoreMode={scoreMode} />
+                            <ScatterGraphs
+                                entries={businessFilteredEntries}
+                                scoreMode={scoreMode}
+                                hiddenProviders={hiddenProviders}
+                                onHiddenProvidersChange={setHiddenProviders}
+                            />
                         )}
                         {graphSubTab === 'heatmap' && (
-                            <TaskHeatmap entries={filteredEntries} scoreMode={scoreMode} />
+                            <TaskHeatmap entries={businessFilteredEntries} scoreMode={scoreMode} />
                         )}
                         {graphSubTab === 'distribution' && (
-                            <ScoreDistribution entries={filteredEntries} scoreMode={scoreMode} currentVersion={currentVersion} officialOnly={officialOnlyState} />
+                            <ScoreDistribution entries={businessFilteredEntries} scoreMode={scoreMode} currentVersion={currentVersion} officialOnly={officialOnlyState} />
                         )}
                         {graphSubTab === 'radar' && (
-                            <ModelRadar entries={filteredEntries} scoreMode={scoreMode} />
+                            <ModelRadar entries={businessFilteredEntries} scoreMode={scoreMode} />
                         )}
 
                         <KiloClawAdCard />
                     </div>
                 ) : (
                     <SimpleLeaderboard
-                        entries={filteredEntries}
+                        entries={businessFilteredEntries}
                         view={view as 'success' | 'speed' | 'cost' | 'value'}
                         scoreMode={scoreMode}
                         benchmarkVersion={currentVersion}
